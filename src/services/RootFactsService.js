@@ -13,7 +13,7 @@ export class RootFactsService {
       temperature: 0.7, // Higher temperature for varied, non-static results
       topP: 0.9,
     };
-    this.currentBackend = 'cpu';
+    this.currentBackend = 'wasm';
     this.currentTone = TONE_CONFIG.defaultTone;
   }
 
@@ -27,12 +27,12 @@ export class RootFactsService {
       env.allowLocalModels = false;
 
       // Check WebGPU capability
-      let device = 'cpu';
+      let device = 'wasm';
       if (typeof navigator !== 'undefined' && 'gpu' in navigator) {
         device = 'webgpu';
         this.currentBackend = 'webgpu';
       } else {
-        this.currentBackend = 'cpu';
+        this.currentBackend = 'wasm';
       }
 
       this.generator = await pipeline(
@@ -52,14 +52,14 @@ export class RootFactsService {
       this.isModelLoaded = true;
       return { success: true, model: this.config.modelName, device };
     } catch (error) {
-      console.warn('Failed to load Transformers model on WebGPU, falling back to CPU:', error);
+      console.warn('Failed to load Transformers model on WebGPU, falling back to WebAssembly:', error);
       try {
         const { pipeline } = await import(this.config.cdnUrl);
         this.generator = await pipeline(
           'text2text-generation',
           this.config.modelName,
           {
-            device: 'cpu',
+            device: 'wasm',
             dtype: 'fp16',
             progress_callback: (progress) => {
               if (onProgress) {
@@ -68,9 +68,9 @@ export class RootFactsService {
             }
           }
         );
-        this.currentBackend = 'cpu';
+        this.currentBackend = 'wasm';
         this.isModelLoaded = true;
-        return { success: true, model: this.config.modelName, device: 'cpu' };
+        return { success: true, model: this.config.modelName, device: 'wasm' };
       } catch (fallbackError) {
         console.error('Error loading Transformers.js model:', fallbackError);
         throw fallbackError;
