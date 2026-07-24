@@ -7,11 +7,11 @@ export class RootFactsService {
     this.isModelLoaded = false;
     this.isGenerating = false;
     this.config = {
-      modelName: 'Xenova/LaMini-Flan-T5-77M',
+      modelName: 'Xenova/LaMini-Flan-T5-248M',
       cdnUrl: 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1',
-      maxTokens: 50, // Optimized limit for faster inference
-      temperature: 0.3,
-      topP: 0.8,
+      maxTokens: 100, // Increased for more complete and relevant responses
+      temperature: 0.7, // Higher temperature for varied, non-static results
+      topP: 0.9,
     };
     this.currentBackend = 'cpu';
     this.currentTone = TONE_CONFIG.defaultTone;
@@ -40,7 +40,7 @@ export class RootFactsService {
         this.config.modelName,
         {
           device: device,
-          dtype: 'q4',
+          dtype: 'q8',
           progress_callback: (progress) => {
             if (onProgress) {
               onProgress(progress);
@@ -60,7 +60,7 @@ export class RootFactsService {
           this.config.modelName,
           {
             device: 'cpu',
-            dtype: 'q4',
+            dtype: 'q8',
             progress_callback: (progress) => {
               if (onProgress) {
                 onProgress(progress);
@@ -107,32 +107,29 @@ export class RootFactsService {
       let isValid = false;
 
       while (attempts > 0 && !isValid) {
-        // Formulate prompt based on selected persona
-        let prompt = '';
-        // Reduce temperature as attempts fail to encourage more deterministic and correct outputs
-        const temp = attempts === 3 ? 0.3 : (attempts === 2 ? 0.1 : 0.0);
+        // Vary temperature across retries: start high for variety, go lower for reliability
+        const temp = attempts === 3 ? 0.75 : (attempts === 2 ? 0.5 : 0.2);
+        const tone = this.currentTone || 'normal';
 
-        switch (this.currentTone) {
-        case 'funny':
-          prompt = `Generate one short and funny humor fact specifically about the vegetable ${sanitizedName}. The funny fact must be directly related to ${sanitizedName} and must not mention or describe any other object, person, place, or unrelated topic. Output only the funny fact.`;
-          break;
-        case 'professional':
-          prompt = `Generate one short, professional, and scientific fact specifically about the vegetable ${sanitizedName}. The scientific fact must be directly related to ${sanitizedName} and must not mention or describe any other object, person, place, or unrelated topic. Output only the professional fact.`;
-          break;
-        case 'casual':
-          prompt = `Generate one short, casual, and interesting culinary fact specifically about the vegetable ${sanitizedName}. The casual fact must be directly related to ${sanitizedName} and must not mention or describe any other object, person, place, or unrelated topic. Output only the casual fact.`;
-          break;
-        case 'normal':
-        default:
-          prompt = `Generate one short and interesting fun fact specifically about the vegetable ${sanitizedName}. The fun fact must be directly related to ${sanitizedName} and must not mention or describe any other object, person, place, or unrelated topic. Output only the fun fact.`;
-          break;
+        // Incorporate context about vegetables/health/cooking to guide the model to be more relevant and creative
+        let prompt = '';
+        if (tone === 'funny') {
+          prompt = `Describe vegetable ${sanitizedName} in funny way with one sentence focusing on a hilarious joke or funny fact.`;
+        } else if (tone === 'professional') {
+          prompt = `Describe vegetable ${sanitizedName} in professional way with one sentence focusing on its nutritional values, health benefits, or scientific properties.`;
+        } else if (tone === 'casual') {
+          prompt = `Describe vegetable ${sanitizedName} in casual way with one sentence focusing on its culinary uses, taste, and cooking.`;
+        } else {
+          prompt = `Describe vegetable ${sanitizedName} in normal way with one sentence focusing on an interesting history or unique fact.`;
         }
 
         const result = await this.generator(prompt, {
           max_new_tokens: this.config.maxTokens,
           temperature: temp,
-          top_p: 0.8,
+          top_p: this.config.topP,
           do_sample: temp > 0,
+          repetition_penalty: 1.6, // Prevents repetitive/looping sentences
+          no_repeat_ngram_size: 3, // Prevents repetitive 3-word combinations
         });
 
         generatedText = result[0].generated_text.trim();
@@ -154,41 +151,114 @@ export class RootFactsService {
     }
   }
 
-  // Validate that the generated text is relevant to the detected vegetable
+  // Validate that the generated text is relevant and high-quality for the detected vegetable
   validateFact(text, vegetableName) {
-    if (!text || text.trim().length < 10) {
+    if (!text || text.trim().length < 20) {
       return false;
     }
     const lowerText = text.toLowerCase();
     const lowerName = vegetableName.toLowerCase();
 
-    // Check if the generated text just repeats the prompt instruction template
-    if (lowerText.includes('generate one short') || lowerText.includes('specifically about') || lowerText.includes('must not mention')) {
+    // === REJECT PATTERNS ===
+
+    // 1. Reject prompt echoing
+    const promptPatterns = ['generate one', 'specifically about', 'must not mention', 'describe vegetable', 'output only'];
+    for (const p of promptPatterns) {
+      if (lowerText.includes(p)) return false;
+    }
+
+    // 2. Reject gibberish: repeating character sequences (e.g. "OSOSOSOS", "aaaaa")
+    if (/(.{2,})\1{2,}/i.test(text)) {
       return false;
     }
 
-    // Must mention the vegetable or its common singular/plural variants
-    if (lowerText.includes(lowerName)) {
-      return true;
+    // 3. Reject repetitive words: any meaningful word repeated 3+ times
+    const words = lowerText.split(/\s+/);
+    const wordCounts = {};
+    for (const word of words) {
+      if (word.length > 2) {
+        wordCounts[word] = (wordCounts[word] || 0) + 1;
+        if (wordCounts[word] >= 3) return false;
+      }
     }
 
-    if (lowerName === 'peas' && lowerText.includes('pea')) {
-      return true;
+    // 4. Reject too short (less than 8 words)
+    if (words.length < 8) {
+      return false;
     }
-    if (lowerName === 'eggplant' && lowerText.includes('aubergine')) {
-      return true;
+
+    // 5. Reject generic template patterns seen from bad model output
+    const genericPatterns = [
+      'is a vegetable',
+      'is a popular',
+      'popular choice',
+      'popular snack',
+      'popular vegetable',
+      'people to enjoy',
+      'especially when',
+      'cooked in a pot',
+      'all over the',
+      'all around the',
+      'all of the',
+      'fresh air and enjoy',
+      'is the body of water',
+      'body of water',
+    ];
+    for (const gp of genericPatterns) {
+      if (lowerText.includes(gp)) return false;
     }
-    if (lowerName === 'potato' && lowerText.includes('potatoes')) {
-      return true;
+
+    // 6. Reject content clearly unrelated to vegetables/food/agriculture
+    const unrelatedKeywords = [
+      'anatomy', 'manusia', 'human body', 'programming', 'software',
+      'computer', 'javascript', 'politik', 'ocean', 'the sea',
+      'president', 'government', 'military', 'war ', 'planet',
+      'spacecraft', 'galaxy', 'solar system', 'mathematics',
+    ];
+    for (const keyword of unrelatedKeywords) {
+      if (lowerText.includes(keyword)) return false;
     }
-    if (lowerName === 'carrot' && lowerText.includes('carrots')) {
-      return true;
+
+    // 7. Reject if it mentions a DIFFERENT food/vegetable as the subject
+    //    (e.g. "An apple is used in garlic" — apple is not garlic)
+    const otherFoods = ['apple', 'banana', 'orange', 'grape', 'mango', 'strawberry', 'watermelon', 'pineapple', 'cherry', 'peach', 'lemon'];
+    for (const food of otherFoods) {
+      // Only reject if the other food appears as a subject (near start of sentence)
+      if (lowerText.startsWith(food) || lowerText.startsWith(`an ${food}`) || lowerText.startsWith(`a ${food}`) || lowerText.startsWith(`the ${food}`)) {
+        if (!lowerName.includes(food)) return false;
+      }
     }
-    if (lowerName === 'onion' && lowerText.includes('onions')) {
-      return true;
+
+    // === ACCEPT CONDITIONS ===
+
+    // Must mention the vegetable name or a known variant
+    const nameVariants = [lowerName];
+    if (lowerName.endsWith('s')) {
+      nameVariants.push(lowerName.slice(0, -1));
+    } else {
+      nameVariants.push(`${lowerName}s`);
     }
-    if (lowerName === 'chilli' && lowerText.includes('chili')) {
-      return true;
+    const aliases = {
+      eggplant: ['aubergine'],
+      chilli: ['chili', 'chilli pepper', 'chili pepper'],
+      corn: ['maize'],
+      potato: ['potatoes'],
+      peas: ['pea', 'green pea'],
+      cabbage: ['cabbages'],
+      lettuce: ['salad green'],
+      spinach: ['spinacia'],
+      garlic: ['allium'],
+      ginger: ['zingiber'],
+      onion: ['onions', 'allium cepa'],
+    };
+    if (aliases[lowerName]) {
+      nameVariants.push(...aliases[lowerName]);
+    }
+
+    for (const variant of nameVariants) {
+      if (lowerText.includes(variant)) {
+        return true;
+      }
     }
 
     return false;
