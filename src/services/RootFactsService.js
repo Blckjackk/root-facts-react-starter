@@ -114,13 +114,13 @@ export class RootFactsService {
         // Incorporate context about vegetables/health/cooking to guide the model to be more relevant and creative
         let prompt = '';
         if (tone === 'funny') {
-          prompt = `Describe vegetable ${sanitizedName} in funny way with one sentence focusing on a hilarious joke or funny fact.`;
+          prompt = `Describe vegetable ${sanitizedName} in funny way with a detailed and humorous description focusing on a hilarious joke or funny fact.`;
         } else if (tone === 'professional') {
-          prompt = `Describe vegetable ${sanitizedName} in professional way with one sentence focusing on its nutritional values, health benefits, or scientific properties.`;
+          prompt = `Describe vegetable ${sanitizedName} in professional way with a detailed and informative description focusing on its nutritional values, health benefits, and scientific properties.`;
         } else if (tone === 'casual') {
-          prompt = `Describe vegetable ${sanitizedName} in casual way with one sentence focusing on its culinary uses, taste, and cooking.`;
+          prompt = `Describe vegetable ${sanitizedName} in casual way with a detailed and friendly description focusing on its culinary uses, taste, and cooking.`;
         } else {
-          prompt = `Describe vegetable ${sanitizedName} in normal way with one sentence focusing on an interesting history or unique fact.`;
+          prompt = `Describe vegetable ${sanitizedName} in normal way with a detailed and interesting description focusing on an interesting history or unique fact.`;
         }
 
         const result = await this.generator(prompt, {
@@ -226,6 +226,19 @@ export class RootFactsService {
       // Only reject if the other food appears as a subject (near start of sentence)
       if (lowerText.startsWith(food) || lowerText.startsWith(`an ${food}`) || lowerText.startsWith(`a ${food}`) || lowerText.startsWith(`the ${food}`)) {
         if (!lowerName.includes(food)) return false;
+      }
+    }
+
+    // 8. Reject if it mentions OTHER vegetables from the target dataset
+    const allLabels = [
+      'beetroot', 'paprika', 'cabbage', 'carrot', 'cauliflower',
+      'chilli', 'corn', 'cucumber', 'eggplant', 'garlic',
+      'ginger', 'lettuce', 'onion', 'peas', 'potato',
+      'turnip', 'soybean', 'spinach'
+    ];
+    for (const label of allLabels) {
+      if (label !== lowerName && lowerText.includes(label)) {
+        return false;
       }
     }
 
