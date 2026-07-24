@@ -40,7 +40,7 @@ export class RootFactsService {
         this.config.modelName,
         {
           device: device,
-          dtype: 'q8',
+          dtype: 'fp16',
           progress_callback: (progress) => {
             if (onProgress) {
               onProgress(progress);
@@ -60,7 +60,7 @@ export class RootFactsService {
           this.config.modelName,
           {
             device: 'cpu',
-            dtype: 'q8',
+            dtype: 'fp16',
             progress_callback: (progress) => {
               if (onProgress) {
                 onProgress(progress);
@@ -240,6 +240,27 @@ export class RootFactsService {
       if (label !== lowerName && lowerText.includes(label)) {
         return false;
       }
+    }
+
+    // 9. Reject if there are consecutive duplicate words (e.g., "is is", "the the", "colorful and colorful")
+    if (/\b(\w+)\s+\1\b/i.test(text)) {
+      return false;
+    }
+
+    // 10. Reject if the vegetable name is repeated more than 2 times
+    const nameOccurrences = (lowerText.match(new RegExp(lowerName, 'g')) || []).length;
+    if (nameOccurrences > 2) {
+      return false;
+    }
+
+    // 11. Reject if it contains formatting/markdown symbols (e.g. *, #, [, ], {, }, /)
+    if (/[\[\]\{\}\*\#\/\|]/.test(text)) {
+      return false;
+    }
+
+    // 12. Reject if the sentence does not end with a proper punctuation (. ! ?)
+    if (!/[.!?]$/.test(text.trim())) {
+      return false;
     }
 
     // === ACCEPT CONDITIONS ===
